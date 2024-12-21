@@ -1,4 +1,4 @@
 Flask
 requests
-twilio==
+twilio==9.4.1
 python-dotenv
