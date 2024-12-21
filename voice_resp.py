@@ -18,7 +18,7 @@ TWILIO_ACCOUNT_SID = config["account_sid"]
 TWILIO_AUTH_TOKEN = config["auth_token"]
 PHONE_NUM = config["phone_numz"]
 
-TELEGRAM_API_BASE = f"https://api.telegram.org/bot{"bot_token"}"
+TELEGRAM_API_BASE = f"https://api.telegram.org/bot{bot_token}"
 
 def send_telegram_message(chat_id, text):
     try:
