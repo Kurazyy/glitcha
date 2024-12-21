@@ -1,24 +1,24 @@
 import os
+import json
 from flask import Flask, request, jsonify
 from twilio.twiml.voice_response import VoiceResponse, Gather, Play
 import requests
 import datetime
 import pytz
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 app = Flask(__name__)
 
-# Get sensitive information from environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-PHONE_NUM = os.getenv("PHONE_NUM")
-NGROK_URL = os.getenv("NGROK_URL")
+# Load configuration from JSON file
+with open('config.json', 'r') as f:
+    config = json.load(f)
 
-TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+# Get sensitive information from the loaded config
+TELEGRAM_BOT_TOKEN = config["bot_token"]
+TWILIO_ACCOUNT_SID = config["account_sid"]
+TWILIO_AUTH_TOKEN = config["auth_token"]
+PHONE_NUM = config["phone_numz"]
+
+TELEGRAM_API_BASE = f"https://api.telegram.org/bot{"bot_token"}"
 
 def send_telegram_message(chat_id, text):
     try:
